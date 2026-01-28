@@ -21,11 +21,11 @@ choice = int(input("\nEnter your choice (0 or 1):"))
 
 engine.setProperty('voice', voice_options[choice][1]) #0m1f
 engine.setProperty('rate',120) #speed
-engine.setProperty('volume',10.0)
+engine.setProperty('volume',50.0)
 
 print(f"\nVoice set to:{voice_options[choice][0]}\n")
 
-engine.say(f"Hello Raaaj.How are you today? {voice_options[choice][0]}")
+engine.say(f"Hello Praachi . How are you today?. How can i help you ?. {voice_options[choice][0]}")
 engine.runAndWait()
 
 #STT
