@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>TRAVELMITRA-YOUR PERSONAL MAP</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body { 
+      margin:0; 
+      font-family: 'Courier New', Courier, monospace; 
+      background-color: rgb(199, 161, 126);
+    }
+
+    header { padding:12px; background: rgb(199, 161, 126); color:white; }
+    #map { width:100%; height:500px; }
+    .chart-box { 
+      width:95%; 
+      max-width:800px; 
+      margin:12px auto; 
+      height:450px;   /* ✅ taller chart */
+      background:white; 
+      border:1px solid #ddd; 
+      border-radius:8px; 
+      padding:16px;   /* ✅ extra padding */
+      box-sizing: border-box;
+    }
+    canvas { width:100% !important; height:100% !important; }
+    .controls { display:flex; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
+    #place { flex:1; padding:8px; }
+    #datetime, #mode { padding:8px; border:1px solid #ccc; border-radius:6px; }
+    button { padding:8px 12px; background:#0ea5e9; color:white; border:none; border-radius:6px; cursor:pointer; }
+    button:hover { background:#0284c7; }
+  </style>
+</head>
+<body>
+  <header><h1 style="margin:0;font-size:26px;"> TRAVELMITRA - YOUR ULTIMATE PERSONAL MAP</h1></header>
+
+  <div id="map"></div>
+
+  <div class="chart-box">
+    <div class="controls">
+      <input id="place" type="text" placeholder="Enter destination" />
+      <input id="datetime" type="datetime-local" />
+      <select id="mode">
+        <option value="car">Car</option>
+        <option value="pedestrian">Pedestrian</option>
+        <option value="bicycle">Bicycle</option>
+        <option value="plane">Plane</option>
+        <option value="train">Train</option>
+      </select>
+      <button onclick="handleSearch()">SEARCH</button>
+    </div>
+    <canvas id="combinedChart"></canvas>
+  </div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+
+  <script>
+    const TOMTOM_API_KEY = "Vd6J85v5I2HxVJZwS5tKMQ7ROS4BKAsv";
+
+    const map = L.map('map').setView([28.6139, 77.2090], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    let originCoords = null;
+    let originMarker, destMarker, routeLine;
+    let combinedChartObj;
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(pos => {
+        originCoords = [pos.coords.latitude, pos.coords.longitude];
+        originMarker = L.marker(originCoords, { title:"You" }).addTo(map);
+        map.setView(originCoords, 13);
+      });
+    }
+
+    async function geocodePlace(place) {
+      const url = `https://api.tomtom.com/search/2/search/${encodeURIComponent(place)}.json?key=${TOMTOM_API_KEY}&limit=1`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!data.results || data.results.length === 0) throw new Error("Place not found");
+      return [data.results[0].position.lat, data.results[0].position.lon];
+    }
+
+    async function fetchRoute(orig, dest, mode) {
+      if (["car","pedestrian","bicycle"].includes(mode)) {
+        const url = `https://api.tomtom.com/routing/1/calculateRoute/${orig[0]},${orig[1]}:${dest[0]},${dest[1]}/json?key=${TOMTOM_API_KEY}&travelMode=${mode}&traffic=true`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (!data.routes || data.routes.length === 0) throw new Error("No route found for the selected mode. Try a closer destination or different mode.");
+        return { travelTimeInSeconds: data.routes[0].summary.travelTimeInSeconds, points: data.routes[0].legs[0].points };
+      } else {
+        const R = 6371; 
+        const dLat = (dest[0]-orig[0])*Math.PI/180;
+        const dLon = (dest[1]-orig[1])*Math.PI/180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(orig[0]*Math.PI/180)*Math.cos(dest[0]*Math.PI/180)*Math.sin(dLon/2)**2;
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        const distanceKm = R * c;
+
+        let speedKmh = mode === "plane" ? 800 : 120;
+        let travelTimeSec = (distanceKm / speedKmh) * 3600;
+        const points = [orig, dest];
+        return { travelTimeInSeconds: travelTimeSec, points };
+      }
+    }
+
+    function formatTime(minutes) {
+      if (minutes < 60) return minutes + " min";
+      if (minutes < 1440) { 
+        const hrs = Math.floor(minutes / 60);
+        const mins = minutes % 60;
+        return mins === 0 ? `${hrs} hr` : `${hrs} hr ${mins} min`;
+      }
+      const days = Math.floor(minutes / 1440);
+      const hrs = Math.floor((minutes % 1440) / 60);
+      const mins = minutes % 60;
+      let result = `${days} day${days>1?'s':''}`;
+      if (hrs) result += ` ${hrs} hr`;
+      if (mins) result += ` ${mins} min`;
+      return result;
+    }
+
+    function generateCrowdData(mode) {
+      switch(mode) {
+        case "plane": 
+          return Array.from({length:12}, ()=>Math.floor(Math.random()*20));
+        case "train": 
+          return Array.from({length:12}, ()=>50 + Math.floor(Math.random()*30));
+        case "car": 
+          return Array.from({length:12}, ()=>40 + Math.floor(Math.random()*60));
+        case "bicycle": 
+          return Array.from({length:12}, ()=>20 + Math.floor(Math.random()*20));
+        case "pedestrian": 
+          return Array.from({length:12}, ()=>10 + Math.floor(Math.random()*20));
+        default: 
+          return Array.from({length:12}, ()=>Math.floor(Math.random()*50));
+      }
+    }
+
+    function drawCombinedChart(labels, values) {
+      if (combinedChartObj) combinedChartObj.destroy();
+      combinedChartObj = new Chart(document.getElementById("combinedChart").getContext("2d"), {
+        type: "bar",
+        data: {
+          labels,
+          datasets: [{
+            label: "Travel Time & Crowd",
+            data: values,
+            backgroundColor: ["rgba(255,99,132,0.6)", ...values.slice(1).map(()=> "rgba(30,144,255,0.6)")],
+            borderColor: ["red", ...values.slice(1).map(()=> "blue")],
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          layout: {
+            padding: { top: 20, right: 20, bottom: 20, left: 20 } // ✅ keeps labels inside
+          },
+          scales: { 
+            y: { beginAtZero: true },
+            x: {
+              ticks: {
+                display: true,
+                autoSkip: false,
+                maxRotation: 0,
+                minRotation: 0,
+                color: 'black',
+                padding: 8
+              }
+            }
+          },
+          plugins: {
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  return context.dataIndex === 0 ? formatTime(context.raw) : context.raw;
+                }
+              }
+            },
+            datalabels: {
+              display: function(context) {
+                return context.dataIndex === 0;
+              },
+              formatter: function(value) {
+                return formatTime(value);
+              },
+              color: 'black',
+              anchor: 'end',
+              align: 'end',
+              font: { weight: 'bold', size: 12 }
+            }
+          }
+        },
+        plugins: [ChartDataLabels]
+      });
+    }
+
+    async function handleSearch() {
+      const place = document.getElementById("place").value;
+      const mode = document.getElementById("mode").value;
+      if (!place) { alert("Enter a Destination"); return; }
+
+      try {
+        const destCoords = await geocodePlace(place);
+
+        if (destMarker) map.removeLayer(destMarker);
+        destMarker = L.marker(destCoords, { title:"Destination" }).addTo(map);
+
+        if (originCoords) {
+          const route = await fetchRoute(originCoords, destCoords, mode);
+
+          let pointsToDraw;
+          if (["car","pedestrian","bicycle"].includes(mode)) {
+            pointsToDraw = route.points.map(p => [p.latitude, p.longitude]);
+          } else {
+            pointsToDraw = route.points;
+          }
+
+          if (routeLine) map.removeLayer(routeLine);
+          routeLine = L.polyline(pointsToDraw, { color:'blue', weight:5 }).addTo(map);
+          map.fitBounds(routeLine.getBounds());
+
+          const travelMin = Math.round(route.travelTimeInSeconds / 60);
+
+          const crowdData = generateCrowdData(mode);
+          const crowdLabels = Array.from({length:12}, (_,i)=>`${i+8}:00`);
+
+          const combinedLabels = ["With Traffic", ...crowdLabels];
+          const combinedValues = [travelMin, ...crowdData];
+
+          drawCombinedChart(combinedLabels, combinedValues);
+        }
+      } catch (err) {
+        alert("Error: " + err.message);
+      }
+    }
+  </script>
+</body>
+</html>
