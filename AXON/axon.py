@@ -3,9 +3,14 @@ print("AXON is online.")
 import pyttsx3
 # import speech_recognition as sr   # STT paused for now
 
-engine = pyttsx3.init()  # Initialize the TTS Engine
+from brain import process_command   # 🧠 import brain
 
-voices = engine.getProperty('voices')  # Choose a voice
+# -------------------------
+# TTS SETUP
+# -------------------------
+engine = pyttsx3.init()
+
+voices = engine.getProperty('voices')
 
 voice_options = {
     0: ("AXON PRIME", voices[0].id),
@@ -21,8 +26,8 @@ for index, (name, vid) in voice_options.items():
 choice = int(input("\nEnter your choice (0 or 1): "))
 
 engine.setProperty('voice', voice_options[choice][1])
-engine.setProperty('rate', 120)      # speech speed
-engine.setProperty('volume', 50.0)   # volume
+engine.setProperty('rate', 120)
+engine.setProperty('volume', 50.0)
 
 print(f"\nVoice set to: {voice_options[choice][0]}\n")
 
@@ -32,24 +37,16 @@ engine.say(
 engine.runAndWait()
 
 
+# -------------------------
 # TEXT INPUT (STT PAUSED)
-
+# -------------------------
 def get_user_input():
     return input("\n🧑 You: ").lower()
 
 
-# COMMAND HANDLING (BRAIN)
-
-def command_handler(command):
-    if "hello" in command or "hi" in command:
-        return "Hello! How can I assist you today?"
-    elif "play music" in command:
-        return "Playing your favourite music now."
-    else:
-        return "I'm not sure how to help with that yet."
-    
+# -------------------------
 # MAIN LOOP
-
+# -------------------------
 def main():
     print("AXON is online. Type 'exit' to quit.")
 
@@ -59,18 +56,15 @@ def main():
         if command == "":
             continue
 
-        if "exit" in command:
-            response = "Shutting down. Goodbye."
-            print("AXON:", response)
-            engine.say(response)
-            engine.runAndWait()
-            break
-
-        response = command_handler(command)
+        # 🧠 send command to brain
+        intent, response = process_command(command)
 
         print("AXON:", response)
         engine.say(response)
         engine.runAndWait()
+
+        if intent == "exit":
+            break
 
 
 if __name__ == "__main__":
